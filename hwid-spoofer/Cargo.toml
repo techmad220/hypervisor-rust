@@ -1,0 +1,20 @@
+[package]
+name = "hwid-spoofer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+uefi = { version = "0.26", features = ["alloc", "global_allocator"] }
+uefi-services = "0.23"
+log = "0.4"
+x86_64 = "0.14"
+rand = { version = "0.8", default-features = false, features = ["small_rng"] }
+spin = "0.9"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"
