@@ -1,0 +1,19 @@
+[package]
+name = "hypervisor-kernel-driver"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+winapi = { version = "0.3", features = ["ntdef", "winnt", "wdm", "ntstatus"] }
+ntapi = "0.4"
+wdk-sys = "0.1"
+spin = "0.9"
+lazy_static = { version = "1.4", features = ["spin_no_std"] }
+
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = "z"
