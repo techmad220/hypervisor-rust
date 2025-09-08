@@ -1,8 +1,9 @@
 [package]
-name = "drivers"
+name = "uefi-runtime"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+uefi = "0.26"
 x86_64 = "0.14"
 log = "0.4"

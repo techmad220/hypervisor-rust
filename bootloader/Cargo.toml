@@ -14,9 +14,10 @@ raw-cpuid = "11.0"
 [build-dependencies]
 cc = "1.0"
 
-# UEFI requires specific target
-[lib]
-crate-type = ["cdylib"]
+# Binary target for bootloader
+[[bin]]
+name = "bootloader"
+path = "src/main.rs"
 
 [profile.release]
 opt-level = "z"
