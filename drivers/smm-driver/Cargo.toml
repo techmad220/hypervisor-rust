@@ -1,0 +1,14 @@
+[package]
+name = "smm-stealth-driver"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+uefi = { version = "0.26", features = ["alloc"] }
+uefi-services = "0.23"
+x86_64 = "0.14"
+spin = "0.9"
+log = "0.4"
