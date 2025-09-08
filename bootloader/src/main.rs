@@ -4,6 +4,8 @@
 
 extern crate alloc;
 
+mod driver_loader;
+
 use core::mem;
 use log::info;
 use uefi::prelude::*;
@@ -30,10 +32,24 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     info!("Hypervisor-Rust UEFI Bootloader v0.1.0");
     info!("Initializing Type-1 Bare Metal Hypervisor...");
     
+    // Small delay for debugging (1 second)
+    system_table.boot_services().stall(1_000_000);
+    
     // Check CPU features
     if !check_virtualization_support() {
         error!("CPU does not support virtualization!");
         return Status::UNSUPPORTED;
+    }
+    
+    // Load custom drivers if present
+    info!("Loading custom drivers...");
+    match driver_loader::load_driver(
+        image_handle,
+        &system_table,
+        cstr16!("\\EFI\\Drivers\\CustomDriver.efi"),
+    ) {
+        Ok(handle) => info!("Custom driver loaded successfully"),
+        Err(e) => info!("No custom driver found or failed to load: {:?}", e),
     }
     
     // Get memory map
@@ -71,16 +87,38 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     // Enable virtualization extensions
     enable_vmx_or_svm()?;
     
-    // Exit boot services and jump to hypervisor
-    info!("Exiting UEFI boot services...");
+    // Check if we should chainload Windows Boot Manager
+    let chainload_windows = check_for_windows_boot();
     
-    let (_runtime, _mmap) = system_table
-        .exit_boot_services(image_handle, &mut mmap_buffer)
-        .unwrap();
-    
-    // Jump to hypervisor entry point
-    unsafe {
-        jump_to_hypervisor(hypervisor_base);
+    if chainload_windows {
+        info!("Windows installation detected, preparing to chainload...");
+        
+        // Exit boot services and jump to hypervisor
+        info!("Exiting UEFI boot services...");
+        
+        let (_runtime, _mmap) = system_table
+            .exit_boot_services(image_handle, &mut mmap_buffer)
+            .unwrap();
+        
+        // Jump to hypervisor entry point
+        unsafe {
+            jump_to_hypervisor(hypervisor_base);
+        }
+        
+        // After hypervisor initialization, chainload Windows
+        driver_loader::chainload_windows_bootmgr(image_handle, &system_table)?;
+    } else {
+        // Exit boot services and jump to hypervisor
+        info!("Exiting UEFI boot services...");
+        
+        let (_runtime, _mmap) = system_table
+            .exit_boot_services(image_handle, &mut mmap_buffer)
+            .unwrap();
+        
+        // Jump to hypervisor entry point  
+        unsafe {
+            jump_to_hypervisor(hypervisor_base);
+        }
     }
     
     Status::SUCCESS
@@ -109,6 +147,13 @@ fn check_virtualization_support() -> bool {
     }
     
     false
+}
+
+// Check if Windows Boot Manager exists
+fn check_for_windows_boot() -> bool {
+    // This is a simplified check - would need access to SystemTable
+    // In production, we'd check for \\EFI\\Microsoft\\Boot\\bootmgfw.efi
+    false // Default to hypervisor-only mode
 }
 
 // Load hypervisor binary from disk
