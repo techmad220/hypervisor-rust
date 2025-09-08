@@ -12,6 +12,8 @@ pub mod vcpu;
 pub mod vmcs;
 pub mod interrupts;
 pub mod io;
+pub mod devices;
+pub mod loader;
 pub mod plugin;
 
 use core::panic::PanicInfo;
@@ -159,6 +161,7 @@ pub enum HypervisorError {
     InvalidParameter,
     NestedPageFault,
     PluginError,
+    InvalidGuestPhysicalAddress,
 }
 
 /// Entry point from bootloader

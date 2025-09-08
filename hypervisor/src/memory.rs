@@ -1,11 +1,19 @@
-//! Memory management for hypervisor
+//! Real memory management for hypervisor
+//! Based on C implementation from svm.c and vm_creation_plugin.c
 
+use core::alloc::{GlobalAlloc, Layout};
+use core::ptr::{self, NonNull};
+use core::sync::atomic::{AtomicUsize, Ordering};
 use x86_64::{PhysAddr, VirtAddr};
 use x86_64::structures::paging::{PageTable, PageTableFlags, PhysFrame, Page, Size4KiB, Size2MiB, Size1GiB};
 use alloc::vec::Vec;
 use alloc::collections::BTreeMap;
 use spin::Mutex;
 use crate::HypervisorError;
+
+/// Page size constants
+pub const PAGE_SIZE: usize = 4096;
+pub const LARGE_PAGE_SIZE: usize = 2 * 1024 * 1024; // 2MB
 
 /// Memory region type
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -95,21 +103,153 @@ impl EptPageTable {
     }
 }
 
+/// Real NPT/EPT page table manager
+pub struct NestedPageTables {
+    pml4: *mut PageTable,
+    pdpt: *mut PageTable,
+    pd: *mut PageTable,
+    pt: *mut PageTable,
+    allocated_pages: Vec<(*mut u8, Layout)>,
+}
+
+impl NestedPageTables {
+    /// Create new NPT/EPT structure (based on C SetupNpt)
+    pub fn new() -> Result<Self, HypervisorError> {
+        unsafe {
+            // Allocate PML4 table (4KB aligned)
+            let pml4_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE)
+                .map_err(|_| HypervisorError::MemoryAllocationFailed)?;
+            let pml4 = alloc::alloc::alloc_zeroed(pml4_layout) as *mut PageTable;
+            if pml4.is_null() {
+                return Err(HypervisorError::MemoryAllocationFailed);
+            }
+
+            // Allocate PDPT table
+            let pdpt_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE)
+                .map_err(|_| HypervisorError::MemoryAllocationFailed)?;
+            let pdpt = alloc::alloc::alloc_zeroed(pdpt_layout) as *mut PageTable;
+            if pdpt.is_null() {
+                alloc::alloc::dealloc(pml4 as *mut u8, pml4_layout);
+                return Err(HypervisorError::MemoryAllocationFailed);
+            }
+
+            // Allocate PD table
+            let pd_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE)
+                .map_err(|_| HypervisorError::MemoryAllocationFailed)?;
+            let pd = alloc::alloc::alloc_zeroed(pd_layout) as *mut PageTable;
+            if pd.is_null() {
+                alloc::alloc::dealloc(pml4 as *mut u8, pml4_layout);
+                alloc::alloc::dealloc(pdpt as *mut u8, pdpt_layout);
+                return Err(HypervisorError::MemoryAllocationFailed);
+            }
+
+            // Allocate PT table  
+            let pt_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE)
+                .map_err(|_| HypervisorError::MemoryAllocationFailed)?;
+            let pt = alloc::alloc::alloc_zeroed(pt_layout) as *mut PageTable;
+            if pt.is_null() {
+                alloc::alloc::dealloc(pml4 as *mut u8, pml4_layout);
+                alloc::alloc::dealloc(pdpt as *mut u8, pdpt_layout);
+                alloc::alloc::dealloc(pd as *mut u8, pd_layout);
+                return Err(HypervisorError::MemoryAllocationFailed);
+            }
+
+            // Set up page table hierarchy (from C: Pml4[0] = PdptAddr | 7)
+            (*pml4)[0].set_addr(
+                PhysAddr::new(pdpt as u64),
+                PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE
+            );
+
+            // PDPT[0] -> PD
+            (*pdpt)[0].set_addr(
+                PhysAddr::new(pd as u64),
+                PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE
+            );
+
+            // PD entries use 2MB pages for identity mapping (from C: Pd[i] = (i * 0x200000ULL) | 0x87)
+            for i in 0..512 {
+                (*pd)[i].set_addr(
+                    PhysAddr::new(i * LARGE_PAGE_SIZE as u64),
+                    PageTableFlags::PRESENT | PageTableFlags::WRITABLE | 
+                    PageTableFlags::USER_ACCESSIBLE | PageTableFlags::HUGE_PAGE
+                );
+            }
+
+            let mut allocated_pages = Vec::new();
+            allocated_pages.push((pml4 as *mut u8, pml4_layout));
+            allocated_pages.push((pdpt as *mut u8, pdpt_layout));
+            allocated_pages.push((pd as *mut u8, pd_layout));
+            allocated_pages.push((pt as *mut u8, pt_layout));
+
+            Ok(Self {
+                pml4,
+                pdpt,
+                pd,
+                pt,
+                allocated_pages,
+            })
+        }
+    }
+
+    /// Get PML4 physical address for VMCB/VMCS
+    pub fn get_pml4_addr(&self) -> u64 {
+        self.pml4 as u64
+    }
+}
+
+impl Drop for NestedPageTables {
+    fn drop(&mut self) {
+        unsafe {
+            // Deallocate all page tables
+            for (ptr, layout) in self.allocated_pages.drain(..) {
+                alloc::alloc::dealloc(ptr, layout);
+            }
+        }
+    }
+}
+
 /// Memory manager
 pub struct MemoryManager {
     regions: Mutex<Vec<MemoryRegion>>,
     ept_root: Option<PhysAddr>,
     npt_root: Option<PhysAddr>,
     allocations: Mutex<BTreeMap<PhysAddr, usize>>,
+    npt: Option<NestedPageTables>,
+    guest_memory_base: u64,
+    guest_memory_size: usize,
 }
 
 impl MemoryManager {
     pub fn new() -> Self {
+        Self::with_guest_memory(4 * 1024 * 1024) // Default 4MB guest
+    }
+    
+    /// Create with specific guest memory size (based on C SetupExpandedNpt)
+    pub fn with_guest_memory(guest_memory_size: usize) -> Self {
+        // Allocate guest memory
+        let layout = Layout::from_size_align(guest_memory_size, PAGE_SIZE)
+            .expect("Invalid memory layout");
+        
+        let guest_memory_base = unsafe {
+            let ptr = alloc::alloc::alloc_zeroed(layout);
+            if ptr.is_null() {
+                panic!("Failed to allocate guest memory");
+            }
+            ptr as u64
+        };
+
+        // Create NPT/EPT
+        let npt = NestedPageTables::new().ok();
+        let npt_root = npt.as_ref().map(|n| PhysAddr::new(n.get_pml4_addr()));
+
         Self {
             regions: Mutex::new(Vec::new()),
             ept_root: None,
-            npt_root: None,
+            npt_root,
             allocations: Mutex::new(BTreeMap::new()),
+            npt,
+            guest_memory_base,
+            guest_memory_size,
         }
     }
     
@@ -119,9 +259,9 @@ impl MemoryManager {
         log::debug!("Added memory region: {:?}", region);
     }
     
-    /// Allocate physical memory
+    /// Allocate physical memory (based on C AllocatePageAlignedMemory)
     pub fn allocate_physical(&self, size: usize, align: usize) -> Result<PhysAddr, HypervisorError> {
-        let layout = alloc::alloc::Layout::from_size_align(size, align)
+        let layout = Layout::from_size_align(size, align)
             .map_err(|_| HypervisorError::MemoryAllocationFailed)?;
         
         let ptr = unsafe {
@@ -130,6 +270,11 @@ impl MemoryManager {
         
         if ptr.is_null() {
             return Err(HypervisorError::MemoryAllocationFailed);
+        }
+        
+        // Clear memory (like C SetMem)
+        unsafe {
+            ptr::write_bytes(ptr, 0, size);
         }
         
         let addr = PhysAddr::new(ptr as u64);
@@ -188,20 +333,44 @@ impl MemoryManager {
         Ok(())
     }
     
-    /// Create NPT for AMD-V
+    /// Create NPT for AMD-V (real implementation)
     pub fn create_npt(&mut self) -> Result<PhysAddr, HypervisorError> {
-        // NPT uses same format as regular x86-64 page tables
-        let pml4_addr = self.allocate_physical(4096, 4096)?;
-        let pml4 = unsafe { &mut *(pml4_addr.as_u64() as *mut PageTable) };
-        pml4.zero();
+        // Create real NPT structure
+        let npt = NestedPageTables::new()?;
+        let pml4_addr = PhysAddr::new(npt.get_pml4_addr());
         
-        // Set up identity mapping
-        self.setup_npt_identity_map(pml4)?;
-        
+        self.npt = Some(npt);
         self.npt_root = Some(pml4_addr);
         log::info!("Created NPT at {:?}", pml4_addr);
         
         Ok(pml4_addr)
+    }
+    
+    /// Get NPT base address for VMCB
+    pub fn get_npt_base(&self) -> u64 {
+        self.npt.as_ref().map(|n| n.get_pml4_addr()).unwrap_or(0)
+    }
+    
+    /// Read from guest memory
+    pub unsafe fn read_guest_memory(&self, gpa: u64, data: &mut [u8]) -> Result<(), HypervisorError> {
+        if gpa + data.len() as u64 > self.guest_memory_size as u64 {
+            return Err(HypervisorError::InvalidGuestPhysicalAddress);
+        }
+        
+        let src = (self.guest_memory_base + gpa) as *const u8;
+        ptr::copy_nonoverlapping(src, data.as_mut_ptr(), data.len());
+        Ok(())
+    }
+
+    /// Write to guest memory
+    pub unsafe fn write_guest_memory(&self, gpa: u64, data: &[u8]) -> Result<(), HypervisorError> {
+        if gpa + data.len() as u64 > self.guest_memory_size as u64 {
+            return Err(HypervisorError::InvalidGuestPhysicalAddress);
+        }
+        
+        let dst = (self.guest_memory_base + gpa) as *mut u8;
+        ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len());
+        Ok(())
     }
     
     /// Set up identity mapping in NPT
