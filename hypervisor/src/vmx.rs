@@ -23,6 +23,10 @@ pub const VMCS_GUEST_CR4: u32 = 0x6804;
 pub const VMCS_GUEST_RSP: u32 = 0x681C;
 pub const VMCS_GUEST_RIP: u32 = 0x681E;
 pub const VMCS_GUEST_RFLAGS: u32 = 0x6820;
+pub const VMCS_VM_INSTRUCTION_ERROR: u32 = 0x4400;
+pub const VMCS_EXIT_REASON: u32 = 0x4402;
+pub const VMCS_GUEST_INTERRUPTIBILITY: u32 = 0x4824;
+pub const VMCS_CPU_BASED_CONTROLS: u32 = 0x4002;
 
 /// VMX region structure
 #[repr(C, align(4096))]
@@ -140,6 +144,27 @@ impl Vmcs {
         
         Ok(value)
     }
+    
+    /// Initialize VMCS with default settings
+    pub unsafe fn init(&mut self) -> Result<(), HypervisorError> {
+        // Load this VMCS
+        self.load()?;
+        
+        // Set up guest state
+        Self::write_field(VMCS_GUEST_CR0, 0x80000001)?; // PE | PG
+        Self::write_field(VMCS_GUEST_CR3, 0)?; // Will be set later
+        Self::write_field(VMCS_GUEST_CR4, 0x20)?; // PAE
+        Self::write_field(VMCS_GUEST_RSP, 0x7000)?; // Stack pointer
+        Self::write_field(VMCS_GUEST_RIP, 0x7C00)?; // Boot sector location
+        Self::write_field(VMCS_GUEST_RFLAGS, 0x2)?; // Reserved bit
+        Self::write_field(VMCS_GUEST_INTERRUPTIBILITY, 0)?; // No blocking
+        
+        // Set up VM execution controls
+        Self::write_field(VMCS_CPU_BASED_CONTROLS, 0x401E172)?; // Basic controls
+        
+        log::debug!("VMCS initialized successfully");
+        Ok(())
+    }
 }
 
 /// Initialize VMX
@@ -177,7 +202,7 @@ pub fn init() -> Result<(), HypervisorError> {
 }
 
 /// Check if VMX is supported
-fn is_vmx_supported() -> bool {
+pub fn is_vmx_supported() -> bool {
     use raw_cpuid::CpuId;
     
     let cpuid = CpuId::new();
@@ -286,4 +311,9 @@ pub unsafe fn vmresume() -> Result<(), HypervisorError> {
     }
     
     Ok(())
+}
+
+/// Read VMCS field (wrapper for VMCS::read_field)
+pub unsafe fn vmread(field: u32) -> Result<u64, HypervisorError> {
+    Vmcs::read_field(field)
 }

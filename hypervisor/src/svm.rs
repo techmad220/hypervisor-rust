@@ -186,7 +186,7 @@ impl Vmcb {
         unsafe { mem::zeroed() }
     }
     
-    /// Initialize VMCB with default values
+    /// Initialize VMCB with default settings
     pub fn init(&mut self) {
         // Set up control area
         self.control_area.intercept_cr = INTERCEPT_CR0_WRITE | INTERCEPT_CR3_WRITE | INTERCEPT_CR4_WRITE;
@@ -283,7 +283,7 @@ pub fn init() -> Result<(), HypervisorError> {
 }
 
 /// Check if SVM is supported
-fn is_svm_supported() -> bool {
+pub fn is_svm_supported() -> bool {
     use raw_cpuid::CpuId;
     
     let cpuid = CpuId::new();
@@ -695,7 +695,7 @@ fn has_error_code(vector: u8) -> bool {
 }
 
 impl SvmExitCode {
-    fn from_u64(code: u64) -> Self {
+    pub fn from_u64(code: u64) -> Self {
         match code {
             0x000 => SvmExitCode::Read_CR0,
             0x003 => SvmExitCode::Read_CR3,
@@ -740,4 +740,60 @@ impl SvmExitCode {
             _ => SvmExitCode::Invalid,
         }
     }
+}
+
+/// SVM inline assembly functions
+pub unsafe fn vmrun(vmcb_pa: u64) -> u64 {
+    let exit_code: u64;
+    asm!(
+        "clgi",
+        "push rbp",
+        "push rdi",
+        "push rsi", 
+        "push rdx",
+        "push rcx",
+        "push rbx",
+        "push rax",
+        "mov rax, {}",
+        "vmload",
+        "vmrun",
+        "vmsave",
+        "pop rax",
+        "pop rbx",
+        "pop rcx", 
+        "pop rdx",
+        "pop rsi",
+        "pop rdi",
+        "pop rbp",
+        "stgi",
+        in(reg) vmcb_pa,
+        out("rax") exit_code,
+    );
+    exit_code
+}
+
+pub unsafe fn vmload(vmcb_pa: u64) {
+    asm!(
+        "vmload",
+        in("rax") vmcb_pa,
+    );
+}
+
+pub unsafe fn vmsave(vmcb_pa: u64) {
+    asm!(
+        "vmsave",
+        in("rax") vmcb_pa,
+    );
+}
+
+pub unsafe fn vmmcall() {
+    asm!("vmmcall");
+}
+
+pub unsafe fn stgi() {
+    asm!("stgi");
+}
+
+pub unsafe fn clgi() {
+    asm!("clgi");
 }

@@ -87,11 +87,7 @@ impl Hypervisor {
             return Err(HypervisorError::VcpuAlreadyExists);
         }
         
-        let vcpu = if self.vmx_enabled {
-            vcpu::VCpu::new_vmx(vcpu_id)?
-        } else {
-            vcpu::VCpu::new_svm(vcpu_id)?
-        };
+        let vcpu = vcpu::VCpu::new(vcpu_id, 256 * 1024 * 1024)?; // 256MB default
         
         self.vcpus[vcpu_id] = Some(vcpu);
         Ok(self.vcpus[vcpu_id].as_mut().unwrap())
@@ -164,6 +160,23 @@ pub enum HypervisorError {
     NestedPageFault,
     PluginError,
     InvalidGuestPhysicalAddress,
+    MemoryError,
+    VmLaunchFailed,
+    VmResumeFailed,
+    VmRunFailed,
+    CpuidError,
+    MsrError,
+    IoError,
+    NetworkError,
+    StorageError,
+    PluginLoadFailed,
+    HardwareNotSupported,
+    InsufficientMemory,
+    InvalidConfiguration,
+    DeviceNotFound,
+    OperationFailed,
+    GuestException,
+    VmxError,
 }
 
 /// Entry point from bootloader
