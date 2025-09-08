@@ -1,6 +1,9 @@
 #![no_std]
 #![feature(abi_x86_interrupt)]
 #![feature(const_mut_refs)]
+#![feature(asm_const)]
+
+extern crate alloc;
 
 pub mod vmx;
 pub mod svm;
@@ -9,9 +12,12 @@ pub mod vcpu;
 pub mod vmcs;
 pub mod interrupts;
 pub mod io;
+pub mod plugin;
 
 use core::panic::PanicInfo;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
+use plugin::PluginManager;
+use alloc::boxed::Box;
 
 // Global hypervisor state
 pub static mut HYPERVISOR: Option<Hypervisor> = None;
@@ -23,6 +29,7 @@ pub struct Hypervisor {
     pub vcpus: [Option<vcpu::VCpu>; 256],
     pub memory_manager: memory::MemoryManager,
     pub io_manager: io::IoManager,
+    pub plugin_manager: PluginManager,
 }
 
 impl Hypervisor {
@@ -39,6 +46,7 @@ impl Hypervisor {
             vcpus: [const { None }; 256],
             memory_manager: memory::MemoryManager::new(),
             io_manager: io::IoManager::new(),
+            plugin_manager: PluginManager::new(),
         };
         
         // Initialize virtualization extensions
@@ -52,6 +60,9 @@ impl Hypervisor {
         
         // Set up interrupt handlers
         interrupts::init();
+        
+        // Load default plugins
+        hypervisor.load_default_plugins()?;
         
         // Store global instance
         unsafe {
@@ -90,6 +101,29 @@ impl Hypervisor {
         
         vcpu.run()
     }
+    
+    /// Load default plugins
+    fn load_default_plugins(&mut self) -> Result<(), HypervisorError> {
+        use plugin::{AntiDetectionPlugin, MemoryProtectionPlugin, NetworkFilterPlugin};
+        
+        // Register anti-detection plugin
+        let anti_detect = Box::new(AntiDetectionPlugin::new());
+        self.plugin_manager.register(anti_detect).map_err(|_| HypervisorError::PluginError)?;
+        
+        // Register memory protection plugin
+        let mut mem_protect = Box::new(MemoryProtectionPlugin::new());
+        self.plugin_manager.register(mem_protect).map_err(|_| HypervisorError::PluginError)?;
+        
+        // Register network filter plugin
+        let net_filter = Box::new(NetworkFilterPlugin::new());
+        self.plugin_manager.register(net_filter).map_err(|_| HypervisorError::PluginError)?;
+        
+        // Initialize all plugins
+        self.plugin_manager.init_all().map_err(|_| HypervisorError::PluginError)?;
+        
+        log::info!("Loaded {} default plugins", 3);
+        Ok(())
+    }
 }
 
 /// Detect available virtualization technology
@@ -122,6 +156,9 @@ pub enum HypervisorError {
     MemoryAllocationFailed,
     VmcsError,
     VmcbError,
+    InvalidParameter,
+    NestedPageFault,
+    PluginError,
 }
 
 /// Entry point from bootloader
