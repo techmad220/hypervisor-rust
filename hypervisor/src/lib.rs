@@ -14,6 +14,8 @@ pub mod interrupts;
 pub mod io;
 pub mod devices;
 pub mod loader;
+pub mod network;
+pub mod storage;
 pub mod plugin;
 
 use core::panic::PanicInfo;

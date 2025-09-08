@@ -1,6 +1,7 @@
 //! Complete plugin collection - 77+ plugins ported from C
 
 pub mod all_plugins;
+pub mod real_plugins;
 pub mod anti_detection;
 pub mod memory;
 pub mod network;
