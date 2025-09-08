@@ -17,6 +17,8 @@ pub mod loader;
 pub mod network;
 pub mod storage;
 pub mod plugin;
+pub mod memory_allocator;
+pub mod memory_scanner;
 
 use core::panic::PanicInfo;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};

@@ -1,5 +1,12 @@
 //! Complete implementation of all 77+ plugins from C hypervisor
 
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use alloc::string::String;
+use crate::plugin::{Plugin, PluginMetadata, PluginCapability, PluginPriority};
+use crate::{HypervisorError, Vmcb};
+use core::any::Any;
+
 use crate::{HypervisorError, svm::Vmcb};
 use crate::plugin::{Plugin, PluginMetadata, PluginCapability, PluginPriority};
 use alloc::string::String;

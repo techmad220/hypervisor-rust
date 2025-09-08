@@ -8,6 +8,7 @@ use core::mem;
 use core::ptr;
 use alloc::vec::Vec;
 use alloc::boxed::Box;
+use crate::memory_allocator::{allocate_page_aligned_memory, setup_npt, mask_cpuid_features};
 
 // SVM MSRs
 const MSR_VM_CR: u32 = 0xC0010114;
@@ -263,7 +264,7 @@ impl Vmcb {
     }
 }
 
-/// Initialize SVM
+/// Initialize SVM (matching C InitializeSvm pattern)
 pub fn init() -> Result<(), HypervisorError> {
     unsafe {
         // Check if SVM is supported
@@ -271,13 +272,21 @@ pub fn init() -> Result<(), HypervisorError> {
             return Err(HypervisorError::NoVirtualizationSupport);
         }
         
-        // Enable SVM in EFER
+        // Enable SVM in EFER (from C: EnableSvm)
         enable_svm_in_efer()?;
+        
+        // Setup NPT (from C: SetupNpt)
+        let npt_cr3 = setup_npt()?;
+        log::info!("[SVM] NPT configured with CR3: 0x{:x}", npt_cr3);
+        
+        // Mask CPUID features (from C: MaskCpuidFeatures)
+        let (eax, ebx, ecx, edx) = mask_cpuid_features();
+        log::info!("[SVM] CPUID masked: EAX={:x} EBX={:x} ECX={:x} EDX={:x}", eax, ebx, ecx, edx);
         
         // Set up VM_HSAVE_PA MSR
         setup_hsave_area()?;
         
-        log::info!("SVM initialized successfully");
+        log::info!("SVM initialized successfully with C-compatible setup");
         Ok(())
     }
 }
