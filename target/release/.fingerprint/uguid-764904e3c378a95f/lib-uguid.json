@@ -1,0 +1,1 @@
+{"rustc":12673271531194695923,"features":"[]","declared_features":"[\"bytemuck\", \"serde\", \"std\"]","target":17834887670901528553,"profile":7774902939050039893,"path":17690215604896757690,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/uguid-764904e3c378a95f/dep-lib-uguid","checksum":false}}],"rustflags":[],"config":2069994364910194474,"compile_kind":0}

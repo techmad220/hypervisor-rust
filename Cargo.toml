@@ -1,55 +1,36 @@
-[package]
-name = "hypervisor-rust"
-version = "0.1.0"
-edition = "2021"
-authors = ["Hypervisor Team"]
-description = "Type-1 Bare Metal Hypervisor in Rust with UEFI support"
-
 [workspace]
 members = [
-    "bootloader",
     "hypervisor",
-    "uefi-runtime",
-    "drivers",
+    "bootloader",
+    "hwid-spoofer",
+    "drivers/kernel-driver",
 ]
+resolver = "2"
 
-# Main hypervisor library
-[lib]
-name = "hypervisor_rust"
-path = "src/lib.rs"
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+authors = ["Hypervisor Team"]
 
-[[bin]]
-name = "hypervisor"
-path = "src/main.rs"
-
-[dependencies]
-# Core dependencies for bare metal
-core = { version = "0.0.0", optional = true }
-compiler_builtins = { version = "0.1.85", features = ["mem"] }
-linked_list_allocator = "0.10"
+[workspace.dependencies]
+# Core dependencies
+log = "0.4"
+spin = "0.9"
+lazy_static = { version = "1.4", features = ["spin_no_std"] }
+bitflags = "2.4"
 
 # x86_64 specific
 x86_64 = "0.14"
+x86 = "0.52"
 raw-cpuid = "11.0"
-bit_field = "0.10"
 
-# UEFI support
-uefi = "0.26"
+# UEFI
+uefi = { version = "0.26", features = ["alloc"] }
 uefi-services = "0.23"
 
-# Memory management
-bootloader = "0.10"
+# Memory
+linked_list_allocator = "0.10"
 volatile = "0.4"
-spin = "0.9"
-
-# Logging
-log = "0.4"
-
-[target.'cfg(target_arch = "x86_64")'.dependencies]
-x86 = "0.52"
-
-[build-dependencies]
-cc = "1.0"
 
 [profile.dev]
 panic = "abort"
@@ -58,21 +39,4 @@ panic = "abort"
 panic = "abort"
 lto = true
 opt-level = 3
-
-# For bootloader
-[package.metadata.bootloader]
-minimum-framebuffer-height = 200
-
-# Target specification for bare metal
-[target.x86_64-unknown-none]
-linker = "rust-lld"
-
-# Features for different capabilities
-[features]
-default = ["uefi-boot"]
-uefi-boot = []
-legacy-boot = []
-vmx = []  # Intel VT-x
-svm = []  # AMD-V
-nested-virt = []
-iommu = []
+codegen-units = 1

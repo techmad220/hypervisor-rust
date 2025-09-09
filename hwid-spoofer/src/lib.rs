@@ -13,6 +13,8 @@ mod nvme;
 mod acpi;
 mod tpm;
 mod variables;
+pub mod hwid_spoofer_complete;
+pub mod efispoofer_complete;
 
 use uefi::prelude::*;
 use uefi::proto::console::text::SimpleTextOutput;

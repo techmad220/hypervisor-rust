@@ -1,23 +1,40 @@
-//! Real interrupt injection and delivery implementation
-//! Based on hardware virtualization interrupt handling
+//! Complete interrupt handling infrastructure for the hypervisor
+//! Implements all ISRs (Interrupt Service Routines) and exception handlers
 
-use alloc::collections::VecDeque;
-use alloc::vec::Vec;
+use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
+use x86_64::instructions::port::Port;
+use x86_64::registers::control::Cr2;
+use x86_64::instructions::interrupts;
+use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
+use x86_64::structures::tss::TaskStateSegment;
+use x86_64::VirtAddr;
+use x86_64::instructions::segmentation::{CS, Segment};
+use x86_64::instructions::tables::load_tss;
+use x86_64::PrivilegeLevel;
 use spin::Mutex;
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
-use crate::{HypervisorError, vcpu::VCpu, svm::Vmcb, vmx::Vmcs};
+use lazy_static::lazy_static;
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
+use alloc::string::String;
 
-/// Interrupt types
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum InterruptType {
-    External,
-    Nmi,
-    Exception,
-    Software,
-}
+/// Size of the interrupt stack
+pub const STACK_SIZE: usize = 16384; // 16 KB
 
-/// Interrupt vector information
-#[derive(Debug, Clone, Copy)]
+/// Double fault stack index in TSS
+pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
+
+/// NMI stack index in TSS
+pub const NMI_IST_INDEX: u16 = 1;
+
+/// Machine check stack index in TSS
+pub const MCE_IST_INDEX: u16 = 2;
+
+/// Debug stack index in TSS
+pub const DEBUG_IST_INDEX: u16 = 3;
+
+/// Page fault stack index in TSS
+pub const PAGE_FAULT_IST_INDEX: u16 = 4;
 pub struct InterruptVector {
     pub vector: u8,
     pub int_type: InterruptType,

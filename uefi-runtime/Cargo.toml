@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-uefi = "0.26"
+uefi = { version = "0.26", features = ["alloc", "global_allocator", "logger"] }
+uefi-services = "0.23"
 x86_64 = "0.14"
 log = "0.4"
+
+[lib]
+name = "uefi_runtime"
+path = "src/lib.rs"

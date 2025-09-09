@@ -6,7 +6,9 @@
 extern crate alloc;
 
 pub mod vmx;
+pub mod vmx_complete;
 pub mod svm;
+pub mod svm_complete;
 pub mod memory;
 pub mod vcpu;
 pub mod vmcs;
@@ -19,6 +21,17 @@ pub mod storage;
 pub mod plugin;
 pub mod memory_allocator;
 pub mod memory_scanner;
+pub mod vm_management_api;
+pub mod vm_migration;
+pub mod vm_monitoring;
+pub mod vm_networking;
+pub mod pe_loader;
+pub mod windows_stubs;
+pub mod process_hollowing;
+pub mod vm_exit_handlers;
+pub mod ept_npt;
+pub mod guest_memory;
+pub mod hypervisor_core;
 
 use core::panic::PanicInfo;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
@@ -179,6 +192,12 @@ pub enum HypervisorError {
     OperationFailed,
     GuestException,
     VmxError,
+    SvmDisabled,
+    InvalidAsid,
+    AsidAlreadyExists,
+    NoCurrentVmcs,
+    InvalidVmcsIndex,
+    EptNotSupported,
 }
 
 /// Entry point from bootloader

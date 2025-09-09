@@ -1,15 +1,30 @@
 [package]
 name = "hypervisor-bootloader"
-version = "0.1.0"
+version = "2.0.0"
 edition = "2021"
 
 [dependencies]
 uefi = { version = "0.26", features = ["alloc", "global_allocator", "logger"] }
 uefi-services = "0.23"
+# uefi-runtime = { path = "../uefi-runtime" }
 log = "0.4"
 xmas-elf = "0.9"
 x86_64 = "0.14"
 raw-cpuid = "11.0"
+spin = "0.9"
+bitflags = "2.4"
+
+[features]
+default = ["smm", "driver-injection"]
+smm = []
+driver-injection = []
+secure-boot-bypass = []
+persistence = []
+debug = []
+
+[lib]
+name = "bootloader_lib"
+path = "src/lib.rs"
 
 [build-dependencies]
 cc = "1.0"
@@ -19,7 +34,3 @@ cc = "1.0"
 name = "bootloader"
 path = "src/main.rs"
 
-[profile.release]
-opt-level = "z"
-lto = true
-panic = "abort"
