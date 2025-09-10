@@ -33,6 +33,9 @@ pub mod ept_npt;
 pub mod guest_memory;
 pub mod hypervisor_core;
 
+#[cfg(test)]
+mod tests;
+
 use core::panic::PanicInfo;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 use plugin::PluginManager;
